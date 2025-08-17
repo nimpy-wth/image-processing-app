@@ -6,6 +6,7 @@ from PIL import Image
 import requests
 from io import BytesIO
 import plotly.graph_objects as go
+import time
 
 # -------------------------------------------------------------------
 # Page Configuration and Styling
@@ -123,6 +124,42 @@ def create_histogram(image):
     )
     return fig
 
+
+def run_live_camera(operations, params):
+    cap = cv2.VideoCapture(0)
+    st_frame = st.empty()
+    st_hist = st.empty()  # container for histogram
+
+    stop_button = st.button("Stop Live Feed", key="stop_live")
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            st.error("Failed to capture from camera.")
+            break
+
+        frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+
+        processed = frame.copy()
+        for op in operations:
+            processed = process_image(processed, op, params.get(op, {}))
+
+        # Show processed frame
+        st_frame.image(processed, channels="RGB", use_container_width=True)
+
+        # Show histogram of current frame
+        hist_fig = create_histogram(processed)
+        st_hist.plotly_chart(hist_fig, use_container_width=True)
+
+        time.sleep(0.03)
+
+        # Stop when button pressed
+        if stop_button:
+            break
+
+    cap.release()
+
+
 # -------------------------------------------------------------------
 # Main Application UI
 # -------------------------------------------------------------------
@@ -143,7 +180,11 @@ def main():
         if source_choice == "Upload an Image":
             image_file = st.file_uploader("Select an image file", type=["jpg", "jpeg", "png"])
         elif source_choice == "Use Webcam":
-            image_file = st.camera_input("Smile! You're on camera.")
+            webcam_mode = st.radio("Webcam Mode:", ["Snapshot", "Live Camera"])
+            if webcam_mode == "Snapshot":
+                image_file = st.camera_input("Smile! You're on camera.")
+            else:
+                image_file = "LIVE_CAMERA"
         elif source_choice == "Image from URL":
             url = st.text_input("Enter Image URL:", "")
             if url:
@@ -179,39 +220,40 @@ def main():
     st.markdown("Upload an image and apply various processing effects using the controls on the left.")
     
     if image_file:
-        try:
-            # Load and display original image
-            original_pil = Image.open(image_file).convert("RGB")
-            original_cv = np.array(original_pil)
-            
-            # Process the image
-            processed_cv = original_cv.copy()
+        if image_file == "LIVE_CAMERA":
+            st.subheader("Live Camera with Filters")
+            run_live_camera(operations, params)
+        else:
+            try:
+                original_pil = Image.open(image_file).convert("RGB")
+                original_cv = np.array(original_pil)
+                processed_cv = original_cv.copy()
 
-            # Apply each operation in sequence
-            for op in operations:
-                processed_cv = process_image(processed_cv, op, params.get(op, {}))
-            
-            # --- Display Images ---
-            col1, col2 = st.columns(2)
-            with col1:
-                st.subheader("Original Image")
-                st.image(original_pil, use_container_width=True)
+                # Apply each operation in sequence
+                for op in operations:
+                    processed_cv = process_image(processed_cv, op, params.get(op, {}))
+                
+                # --- Display Images ---
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.subheader("Original Image")
+                    st.image(original_pil, use_container_width=True)
 
-            with col2:
-                st.subheader("Processed Image")
-                st.image(processed_cv, use_container_width=True)
+                with col2:
+                    st.subheader("Processed Image")
+                    st.image(processed_cv, use_container_width=True)
 
-            # --- Display Histogram ---
-            st.markdown("---")
-            st.subheader("Image Properties Graph")
-            
-            # Create histogram for the processed image
-            histogram_fig = create_histogram(processed_cv)
-            st.plotly_chart(histogram_fig, use_container_width=True)
+                # --- Display Histogram ---
+                st.markdown("---")
+                st.subheader("Image Properties Graph")
+                
+                # Create histogram for the processed image
+                histogram_fig = create_histogram(processed_cv)
+                st.plotly_chart(histogram_fig, use_container_width=True)
 
-        except Exception as e:
-            st.error(f"An error occurred while processing the image: {e}")
-            st.warning("Please try uploading a different image or checking the URL.")
+            except Exception as e:
+                st.error(f"An error occurred while processing the image: {e}")
+                st.warning("Please try uploading a different image or checking the URL.")
 
     else:
         st.info("Please select an image source from the sidebar to get started.")

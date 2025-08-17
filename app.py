@@ -57,36 +57,47 @@ st.markdown("""
 # -------------------------------------------------------------------
 
 def process_image(image, operation, params):
-
     if operation == 'Grayscale':
-        return cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        return cv2.cvtColor(image, cv2.COLOR_RGB2GRAY) if len(image.shape) == 3 else image
+
     elif operation == 'Blur':
         ksize = params.get('ksize', 5)
-        # Kernel size must be odd
         if ksize % 2 == 0:
             ksize += 1
         return cv2.GaussianBlur(image, (ksize, ksize), 0)
+
     elif operation == 'Edge Detection (Canny)':
-        gray_img = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        if len(image.shape) == 3:  # if RGB, convert to grayscale
+            gray_img = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        else:
+            gray_img = image
         t1 = params.get('threshold1', 100)
         t2 = params.get('threshold2', 200)
         return cv2.Canny(gray_img, t1, t2)
+
     elif operation == 'Thresholding':
-        gray_img = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        if len(image.shape) == 3:  # if RGB, convert to grayscale
+            gray_img = cv2.cvtColor(image, cv2.COLOR_RGB2GRAY)
+        else:
+            gray_img = image
         thresh_val = params.get('threshold_val', 127)
         _, processed = cv2.threshold(gray_img, thresh_val, 255, cv2.THRESH_BINARY)
         return processed
+
     elif operation == 'Sepia':
+        if len(image.shape) == 2:  # convert grayscale back to 3-channel before applying sepia
+            image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
         sepia_kernel = np.array([
             [0.272, 0.534, 0.131],
             [0.349, 0.686, 0.168],
             [0.393, 0.769, 0.189]
         ])
-        # Apply the kernel and clip values to be in the 0-255 range
         sepia_img = cv2.transform(image, sepia_kernel)
         sepia_img = np.clip(sepia_img, 0, 255)
         return sepia_img.astype(np.uint8)
+
     return image
+
 
 def create_histogram(image):
 
@@ -117,6 +128,7 @@ def create_histogram(image):
 # -------------------------------------------------------------------
 
 def main():
+    """The main function to run the Streamlit app."""
     
     # --- Sidebar ---
     with st.sidebar:
@@ -148,20 +160,21 @@ def main():
         # --- Processing Controls ---
         st.markdown("### 2. Configure Processing")
         
-        processing_options = ['None', 'Grayscale', 'Blur', 'Edge Detection (Canny)', 'Thresholding', 'Sepia']
-        operation = st.selectbox("Select an operation:", processing_options)
-        
+        processing_options = ['Grayscale', 'Blur', 'Edge Detection (Canny)', 'Thresholding', 'Sepia']
+        operations = st.multiselect("Select operations (order matters):", processing_options)
+
         params = {}
-        if operation == 'Blur':
-            params['ksize'] = st.slider("Blur Kernel Size", 1, 31, 5, 2)
-        elif operation == 'Edge Detection (Canny)':
-            params['threshold1'] = st.slider("Lower Threshold", 0, 255, 100)
-            params['threshold2'] = st.slider("Upper Threshold", 0, 255, 200)
-        elif operation == 'Thresholding':
-            params['threshold_val'] = st.slider("Threshold Value", 0, 255, 127)
+        for op in operations:
+            if op == 'Blur':
+                params[op] = {"ksize": st.slider(f"{op} - Kernel Size", 1, 31, 5, 2)}
+            elif op == 'Edge Detection (Canny)':
+                params[op] = {
+                    "threshold1": st.slider(f"{op} - Lower Threshold", 0, 255, 100),
+                    "threshold2": st.slider(f"{op} - Upper Threshold", 0, 255, 200)
+                }
+            elif op == 'Thresholding':
+                params[op] = {"threshold_val": st.slider(f"{op} - Threshold Value", 0, 255, 127)}
 
-
-    # --- Main Content ---
     st.title("Image Processing Dashboard")
     st.markdown("Upload an image and apply various processing effects using the controls on the left.")
     
@@ -172,10 +185,11 @@ def main():
             original_cv = np.array(original_pil)
             
             # Process the image
-            if operation != 'None':
-                processed_cv = process_image(original_cv, operation, params)
-            else:
-                processed_cv = original_cv
+            processed_cv = original_cv.copy()
+
+            # Apply each operation in sequence
+            for op in operations:
+                processed_cv = process_image(processed_cv, op, params.get(op, {}))
             
             # --- Display Images ---
             col1, col2 = st.columns(2)
